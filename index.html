@@ -225,7 +225,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font-b);font-size:
 function load(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}}
 function persist(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch{}}
 
-const MONTHS=['April 2026','May 2026','June 2026','July 2026','August 2026','September 2026','October 2026','November 2026','December 2026','January 2027','February 2027'];
+// Auto-generate months from April 2026 for 36 months (3 years) — never needs updating
+function genMonths(startYear,startMonth,count){
+  const names=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const result=[];let y=startYear,m=startMonth;
+  for(let i=0;i<count;i++){result.push(names[m]+' '+y);m++;if(m>11){m=0;y++;}}
+  return result;
+}
+const MONTHS=genMonths(2026,3,36); // starts April 2026, 36 months = through March 2029
 
 let S = load('happ_v2', {
   income: 2519.80,
@@ -368,7 +375,33 @@ function doAddExpense(){
   else{if(!S.extra[S.currentMonth])S.extra[S.currentMonth]=[];S.extra[S.currentMonth].push(item);}
   save();renderAll();closeModal();
 }
-function delExtra(idx){S.extra[S.currentMonth].splice(idx,1);save();renderAll();}
+function editExtra(idx){
+  const m=S.currentMonth;
+  const e=(S.extra[m]||[])[idx];
+  if(!e)return;
+  openModal(`<h3>Edit — ${e.name}</h3>
+    ${mField('Name',`<input id="xen" class="fi" value="${e.name}"/>`)}
+    ${mField('Amount ($)',`<input id="xea" class="fi" type="number" step="0.01" value="${e.amount}"/>`)}
+    ${mField('Icon',`<input id="xei" class="fi" value="${e.icon||'➕'}"/>`)}
+    <div class="mbtns"><button class="btn-cancel" onclick="closeModal()">Cancel</button><button class="btn-save" onclick="doEditExtra(${idx})">Save</button></div>
+    <button class="btn-danger" onclick="doDelExtra(${idx})">Delete this expense</button>`);
+}
+function doEditExtra(idx){
+  const m=S.currentMonth;
+  const e=(S.extra[m]||[])[idx];
+  if(!e)return;
+  e.name=document.getElementById('xen').value||e.name;
+  e.amount=parseFloat(document.getElementById('xea').value)||e.amount;
+  e.icon=document.getElementById('xei').value||e.icon;
+  save();renderAll();closeModal();
+}
+function doDelExtra(idx){S.extra[S.currentMonth].splice(idx,1);save();renderAll();closeModal();}
+function delExtra(idx){doDelExtra(idx);}
+function toggleMonthPaid(m){
+  if(!S.monthPaid)S.monthPaid={};
+  S.monthPaid[m]=!S.monthPaid[m];
+  save();renderSavings();renderOverview();
+}
 
 // ── AFFIRM ────────────────────────────────────────────────────────────
 function editAffirm(id){
@@ -443,8 +476,17 @@ function delLiving(id){S.living=S.living.filter(x=>x.id!==id);save();renderLivin
 
 // ── RENDER ────────────────────────────────────────────────────────────
 function renderMonths(){
-  document.getElementById('months').innerHTML=MONTHS.map(m=>
-    `<button class="mbtn${m===S.currentMonth?' active':''}" onclick="setMonth('${m}')">${m.slice(0,3)} '${m.slice(-2)}</button>`).join('');
+  const curIdx=MONTHS.indexOf(S.currentMonth);
+  // Show 3 before, current, and 5 after — sliding window
+  const start=Math.max(0,curIdx-3);
+  const end=Math.min(MONTHS.length-1,curIdx+5);
+  const visible=MONTHS.slice(start,end+1);
+  const hasPrev=start>0;
+  const hasNext=end<MONTHS.length-1;
+  document.getElementById('months').innerHTML=
+    (hasPrev?`<button class="mbtn" onclick="setMonth('${MONTHS[start-1]}')">◀</button>`:'') +
+    visible.map(m=>`<button class="mbtn${m===S.currentMonth?' active':''}" onclick="setMonth('${m}')">${m.slice(0,3)} '${m.slice(-2)}</button>`).join('') +
+    (hasNext?`<button class="mbtn" onclick="setMonth('${MONTHS[end+1]}')">▶</button>`:'');
 }
 function setMonth(m){S.currentMonth=m;save();renderAll();}
 
@@ -482,7 +524,7 @@ function renderExpenses(){
   document.getElementById('t-fixed').innerHTML=S.fixed.map(e=>row(e,'fixed')).join('')+(m===S.moveinMonth?`<div class="erow"><div class="el"><div class="ico">🔑</div><div><div class="en">Move-in charges</div><div class="ec">One-time</div></div></div><div class="er"><span class="amt amt-f">${fmt(S.moveinAmt)}</span></div></div>`:'');
   document.getElementById('t-variable').innerHTML=S.variable.map(e=>row(e,'variable')).join('');
   document.getElementById('t-debt').innerHTML=S.debt.map(e=>row(e,'debt')).join('')+`<div class="note note-amber">Pay more than minimum when possible to reduce interest faster.</div>`;
-  document.getElementById('t-extra').innerHTML=extras.length?extras.map((e,i)=>`<div class="erow"><div class="el"><div class="ico">➕</div><div><div class="en">${e.name}</div><div class="ec">This month only</div></div></div><div class="er"><span class="amt amt-v">${fmt(e.amount)}</span><button class="btn-del" onclick="event.stopPropagation();delExtra(${i})">✕</button></div></div>`).join(''):`<div class="note note-gold">No one-time expenses for ${m}. Add here.</div>`;
+  document.getElementById('t-extra').innerHTML=extras.length?extras.map((e,i)=>`<div class="erow" onclick="editExtra(${i})"><div class="el"><div class="ico">${e.icon||'➕'}</div><div><div class="en">${e.name}</div><div class="ec">This month only · click to edit</div></div></div><div class="er"><span class="amt amt-v">${fmt(e.amount)}</span><button class="btn-del" onclick="event.stopPropagation();delExtra(${i})">✕</button></div></div>`).join(''):`<div class="note note-gold">No one-time expenses for ${m}. Click "+ Add" above.</div>`;
 }
 
 function swTab(btn,id){
@@ -515,10 +557,12 @@ function renderAffirm(){
 function renderSavings(){
   let cum=0;
   const rows=MONTHS.map(m=>{const s=getSav(m);cum+=s;const pct=Math.min(100,Math.round((s/500)*100));const isc=m===S.currentMonth;
-    return `<div class="srow${isc?' cur':''}" onclick="editSavings('${m}')">
-      <span style="min-width:100px;font-size:12px;${isc?'color:var(--accent);font-weight:600':'color:var(--muted)'}">${m}</span>
-      <div class="sbw"><div class="sbf" style="width:${pct}%"></div></div>
-      <span style="font-weight:600;color:var(--accent2);min-width:55px;text-align:right">${fmts(s)}</span>
+    const paid=(S.monthPaid||{})[m]||false;
+    return `<div class="srow${isc?' cur':''}">
+      <div class="chk${paid?' done':''}" onclick="toggleMonthPaid('${m}')" title="Mark month as settled">${paid?'✓':''}</div>
+      <span style="min-width:95px;font-size:12px;${isc?'color:var(--accent);font-weight:600':'color:var(--muted)'};${paid?'text-decoration:line-through;opacity:.5':''}" onclick="editSavings('${m}')" style="cursor:pointer">${m}</span>
+      <div class="sbw" onclick="editSavings('${m}')" style="cursor:pointer"><div class="sbf" style="width:${pct}%"></div></div>
+      <span style="font-weight:600;color:var(--accent2);min-width:55px;text-align:right;cursor:pointer" onclick="editSavings('${m}')">${fmts(s)}</span>
       <span style="font-size:11px;color:var(--muted);min-width:70px;text-align:right">${fmts(cum)} total</span>
     </div>`;});
   document.getElementById('sav-badge').textContent=fmts(MONTHS.reduce((s,m)=>s+getSav(m),0))+' projected';
@@ -541,8 +585,12 @@ function renderOverview(){
   const rows=MONTHS.map(m=>{
     const af=affirmTotal(m),base=baseTotal(m)+extraTotal(m),sav=getSav(m),left=S.income-base-af-sav;
     const isc=m===S.currentMonth;
-    return `<div class="mt-row${isc?' cur':''}" onclick="setMonth('${m}')">
-      <span style="font-size:12px;${isc?'color:var(--accent);font-weight:600':'color:var(--muted)'}">${m}</span>
+    const paid=(S.monthPaid||{})[m]||false;
+    return `<div class="mt-row${isc?' cur':''}" style="${paid?'opacity:0.5':''}">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="chk${paid?' done':''}" onclick="toggleMonthPaid('${m}')" title="Mark as settled">${paid?'✓':''}</div>
+        <span style="font-size:12px;${isc?'color:var(--accent);font-weight:600':'color:var(--muted)'};cursor:pointer" onclick="setMonth('${m}')">${m}</span>
+      </div>
       <span style="color:var(--green)">${fmt(S.income)}</span>
       <span style="color:var(--red)">${fmt(base)}</span>
       <span style="color:var(--purple)">${fmt(af)}</span>
