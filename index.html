@@ -291,9 +291,13 @@ function affirmTotal(m){
   if(m==='April 2026') return S.aprilAffirm;
   return S.affirm.reduce((s,a)=>s+(a.payments[m]||0),0);
 }
+function getExpAmt(e,m){
+  const ov=(S.overrides||{})[m||S.currentMonth]||{};
+  return ov[e.id]!==undefined?ov[e.id]:e.amount;
+}
 function baseTotal(m){
   let t=0;
-  [...S.fixed,...S.variable,...S.debt].forEach(e=>t+=e.amount);
+  [...S.fixed,...S.variable,...S.debt].forEach(e=>t+=getExpAmt(e,m));
   if(m===S.moveinMonth) t+=S.moveinAmt;
   return t;
 }
@@ -327,22 +331,47 @@ function editExp(id,grp){
   const list=grp==='fixed'?S.fixed:grp==='variable'?S.variable:S.debt;
   const e=list.find(x=>x.id==id);
   if(!e)return;
+  const curOverride=(S.overrides||{})[S.currentMonth]||{};
+  const hasOverride=curOverride[id]!==undefined;
+  const overrideVal=hasOverride?curOverride[id]:e.amount;
   openModal(`<h3>Edit — ${e.name}</h3>
     ${mField('Name',`<input id="men" class="fi" value="${e.name}"/>`)}
-    ${mField('Amount ($)',`<input id="mea" class="fi" type="number" step="0.01" value="${e.amount}"/>`)}
+    ${mField('Default amount ($) — applies every month',`<input id="mea" class="fi" type="number" step="0.01" value="${e.amount}"/>`)}
     ${mField('Icon (emoji)',`<input id="mei" class="fi" value="${e.icon||'📌'}"/>`)}
     ${mField('Category',`<input id="mec" class="fi" value="${e.cat||''}"/>`)}
+    <div class="mf" style="background:var(--surface3);border-radius:var(--rs);padding:10px 12px;margin-top:4px;">
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <input type="checkbox" id="meo" ${hasOverride?'checked':''} onchange="document.getElementById('meow').style.display=this.checked?'block':'none'" style="width:16px;height:16px;accent-color:var(--accent);"/>
+        <span>Override amount for <strong>${S.currentMonth} only</strong></span>
+      </label>
+      <div id="meow" style="display:${hasOverride?'block':'none'}">
+        ${mField(`Amount just for ${S.currentMonth} (set to 0 if not paying this month)`,`<input id="meoa" class="fi" type="number" step="0.01" value="${overrideVal}"/>`)}
+      </div>
+    </div>
     <div class="mbtns"><button class="btn-cancel" onclick="closeModal()">Cancel</button><button class="btn-save" onclick="doEditExp(${JSON.stringify(id)},'${grp}')">Save</button></div>
-    <button class="btn-danger" onclick="doDelExp(${JSON.stringify(id)},'${grp}')">Delete this expense</button>`);
+    <button class="btn-danger" onclick="doDelExp(${JSON.stringify(id)},'${grp}')">Delete this expense permanently</button>`);
 }
 function doEditExp(id,grp){
   const list=grp==='fixed'?S.fixed:grp==='variable'?S.variable:S.debt;
   const e=list.find(x=>x.id==id);
   if(!e)return;
-  e.name=document.getElementById('men').value||e.name;
-  e.amount=parseFloat(document.getElementById('mea').value)||e.amount;
-  e.icon=document.getElementById('mei').value||e.icon;
-  e.cat=document.getElementById('mec').value||e.cat;
+  const newName=document.getElementById('men').value;
+  const newAmt=document.getElementById('mea').value;
+  const newIcon=document.getElementById('mei').value;
+  const newCat=document.getElementById('mec').value;
+  const useOverride=document.getElementById('meo').checked;
+  const overrideAmt=document.getElementById('meoa')?document.getElementById('meoa').value:'';
+  if(newName) e.name=newName;
+  if(newAmt!=='') e.amount=parseFloat(newAmt)||0;
+  if(newIcon) e.icon=newIcon;
+  if(newCat) e.cat=newCat;
+  if(!S.overrides) S.overrides={};
+  if(!S.overrides[S.currentMonth]) S.overrides[S.currentMonth]={};
+  if(useOverride && overrideAmt!==''){
+    S.overrides[S.currentMonth][id]=parseFloat(overrideAmt)||0;
+  } else {
+    delete S.overrides[S.currentMonth][id];
+  }
   save();renderAll();closeModal();
 }
 function doDelExp(id,grp){
@@ -510,9 +539,13 @@ function renderSummary(){
 
 function row(e,grp){
   const cls=grp==='variable'?'amt-v':'amt-f';
+  const amt=getExpAmt(e,S.currentMonth);
+  const isOverridden=(S.overrides||{})[S.currentMonth]&&(S.overrides[S.currentMonth][e.id]!==undefined);
   return `<div class="erow" onclick="editExp(${JSON.stringify(e.id)},'${grp}')">
-    <div class="el"><div class="ico">${e.icon||'📌'}</div><div><div class="en">${e.name}</div><div class="ec">${e.cat||grp}</div></div></div>
-    <div class="er"><span class="amt ${cls}">${fmt(e.amount)}</span></div>
+    <div class="el"><div class="ico">${e.icon||'📌'}</div>
+    <div><div class="en">${e.name}${isOverridden?` <span style="font-size:10px;color:var(--accent);background:rgba(200,184,122,.15);padding:1px 6px;border-radius:99px;">${S.currentMonth} only</span>`:''}</div>
+    <div class="ec">${e.cat||grp}${amt===0?' · not paying this month':''}</div></div></div>
+    <div class="er"><span class="amt ${cls}" style="${amt===0?'color:var(--muted);text-decoration:line-through;':''}">${fmt(amt)}</span></div>
   </div>`;
 }
 
